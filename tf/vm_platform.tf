@@ -11,6 +11,11 @@ variable "vm_nat_image_id" {
   description = "NAT Image Id"
 }
 
+variable "ig_lamp_image_id" {
+  type        = string
+  default     = "fd827b91d99psvq5fjit"
+  description = "LAMP instance image_id"
+}
 
 variable "vm_platform" {
   type        = string

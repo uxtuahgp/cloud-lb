@@ -2,14 +2,14 @@ resource "yandex_vpc_network" "cloud_net" {
   name = var.vpc_net_name
 }
 
-/*
+
 resource "yandex_vpc_subnet" "public_sub" {
   name           = var.vpc_subnet_pub_name
   zone           = var.default_zone
   network_id     = yandex_vpc_network.cloud_net.id
   v4_cidr_blocks = var.public_cidr
 }
-*/
+
 
 resource "yandex_vpc_subnet" "private_sub" {
   name           = var.vpc_subnet_pvt_name
@@ -39,6 +39,79 @@ resource "yandex_storage_object" "upload-pic" {
   acl    = "public-read"
   depends_on = [yandex_storage_bucket.my-bucket]
 }
+
+
+resource "yandex_iam_service_account" "my-iam-sa" {
+  name        = "my-iam-sa"
+  description = "IAM service account"
+  folder_id   = var.folder_id
+}
+
+resource "yandex_resourcemanager_folder_iam_binding" "vpc-admin" {
+  folder_id = var.folder_id
+  role = "vpc.admin"
+  members = [
+    "serviceAccount:${yandex_iam_service_account.my-iam-sa.id}"
+  ]
+}
+
+
+resource "yandex_compute_instance_group" "ig-lamp" {
+  name               = "ig-lamp"
+  service_account_id = yandex_iam_service_account.my-iam-sa.id
+  folder_id = var.folder_id
+    instance_template {
+    platform_id = var.vm_platform
+    resources {
+      cores         = var.vms_resources.pub.cores
+      memory        = var.vms_resources.pub.memory
+      core_fraction = var.vms_resources.pub.fraction
+   }
+    boot_disk {
+      initialize_params {
+        image_id = var.ig_lamp_image_id
+      }
+    }
+    network_interface {
+      subnet_ids = [ yandex_vpc_subnet.public_sub.id ]
+      nat       = true
+    }
+    metadata = {
+      serial-port-enable = var.vms_md.serial
+      ssh-keys           = "core:${var.vms_md.key}"
+      user-data = <<EOF
+      #!/bin/bash
+      cd /var/www/html
+      echo '<html><head><title>Tux picture</title>
+      <body><h1>Tux portrait</h1>
+      <img src="http://uxtuahgp-20260613.storage.yandexcloud.net/tux-pic-20260613.jpg"/>
+      </body></html>' > index.html
+      EOF
+
+    }
+  }
+  scale_policy {
+    fixed_scale {
+      size = 3
+    }
+  }
+  allocation_policy {
+    zones = [var.default_zone]
+  }
+  deploy_policy {
+    max_unavailable = 2
+    max_creating = 3
+    max_expansion = 3
+    max_deleting = 3
+  }
+}
+
+
+
+
+
+
+
 
 
 

@@ -22,7 +22,7 @@ variable "bucket_name" {
 variable "object_key" {
   type        = string
   description = "My picture object key"
-  default     = "tux-pic-20260613.wepb"
+  default     = "tux-pic-20260613.jpg"
 }
 
 variable "local_pic_filename" {
