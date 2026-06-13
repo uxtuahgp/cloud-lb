@@ -47,12 +47,10 @@ resource "yandex_iam_service_account" "my-iam-sa" {
   folder_id   = var.folder_id
 }
 
-resource "yandex_resourcemanager_folder_iam_binding" "vpc-admin" {
+resource "yandex_resourcemanager_folder_iam_member" "iam-admin" {
   folder_id = var.folder_id
-  role = "vpc.admin"
-  members = [
-    "serviceAccount:${yandex_iam_service_account.my-iam-sa.id}"
-  ]
+  role = "admin"
+  member = "serviceAccount:${yandex_iam_service_account.my-iam-sa.id}"
 }
 
 
@@ -80,13 +78,13 @@ resource "yandex_compute_instance_group" "ig-lamp" {
       serial-port-enable = var.vms_md.serial
       ssh-keys           = "core:${var.vms_md.key}"
       user-data = <<EOF
-      #!/bin/bash
-      cd /var/www/html
-      echo '<html><head><title>Tux picture</title>
-      <body><h1>Tux portrait</h1>
-      <img src="http://uxtuahgp-20260613.storage.yandexcloud.net/tux-pic-20260613.jpg"/>
-      </body></html>' > index.html
-      EOF
+#cloud-config
+write-files:
+  - path: /var/www/html/index.html
+    permissions: "0644"
+    content: |
+    <html> <body> <img src=http://uxtuahgp-20260613.storage.yandexcloud.net/tux-pic-20260613.jpg> </body> </html>
+EOF
 
     }
   }
