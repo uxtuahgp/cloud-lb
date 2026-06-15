@@ -74,20 +74,18 @@ resource "yandex_compute_instance_group" "ig-lamp" {
       subnet_ids = [ yandex_vpc_subnet.public_sub.id ]
       nat       = true
     }
+
     metadata = {
       serial-port-enable = var.vms_md.serial
       ssh-keys           = "core:${var.vms_md.key}"
-      user-data = <<EOF
-#cloud-config
-write-files:
-  - path: /var/www/html/index.html
-    permissions: "0644"
-    content: |
-    <html> <body> <img src=http://uxtuahgp-20260613.storage.yandexcloud.net/tux-pic-20260613.jpg> </body> </html>
-EOF
+      user-data   = <<EOF
+  #cloud-config
+    runcmd:
+      - echo PGltZwogICAgc3JjPSJodHRwOi8vdXh0dWFoZ3AtMjAyNjA2MTMuc3RvcmFnZS55YW5kZXhjbG91ZC5uZXQvdHV4LXBpYy0yMDI2MDYxMy5qcGciCi8+Cg== |base64 -d > /var/www/html/index.html
+  EOF
+      }
 
     }
-  }
   scale_policy {
     fixed_scale {
       size = 3
@@ -97,54 +95,33 @@ EOF
     zones = [var.default_zone]
   }
   deploy_policy {
-    max_unavailable = 2
-    max_creating = 3
-    max_expansion = 3
-    max_deleting = 3
+    max_unavailable = 1
+    max_creating = 1
+    max_expansion = 1
+    max_deleting = 1
   }
-}
 
+  load_balancer_spec {
+    target_group_name        = "web-tg"
+    target_group_description = "Target group for lamp instances"
 
-
-
-
-
-
-
-
-
-/*
-resource "yandex_compute_instance" "nat" {
-  name            = "nat"
-  hostname        = "nat"
-  platform_id = var.vm_platform
-  resources {
-    cores         = var.vms_resources.pub.cores
-    memory        = var.vms_resources.pub.memory
-    core_fraction = var.vms_resources.pub.fraction
- }
-  boot_disk {
-    initialize_params {
-      image_id = var.vm_nat_image_id
+    health_checks {
+      name                    = "http-hc"
+      interval                = 10
+      timeout                 = 5
+      unhealthy_threshold     = 2
+      healthy_threshold       = 2
+      http_options {
+        port = 80
+        path = "/"
+      }
     }
   }
-  scheduling_policy {
-    preemptible = true
-  }
-
-  network_interface {
-    subnet_id  = yandex_vpc_subnet.public_sub.id
-    nat        = true
-    ip_address = var.nat_ip
-  }
-
-
-  metadata = {
-    serial-port-enable = var.vms_md.serial
-    ssh-keys           = "core:${var.vms_md.key}"
-  }
 }
-*/
+
+
+
+
 
 resource "yandex_vpc_route_table" "cloud_rt" {
   network_id = yandex_vpc_network.cloud_net.id
@@ -164,12 +141,13 @@ resource "yandex_compute_instance" "pub-01" {
     memory        = var.vms_resources.pub.memory
     core_fraction = var.vms_resources.pub.fraction
  }
-  boot_disk {
-    initialize_params {
-      image_id = data.yandex_compute_image.ubuntu.image_id
-    }
-  }
-  scheduling_policy {
+ boot_disk {
+   initialize_params {
+     image_id = var.ig_lamp_image_id
+   }
+ }
+
+ scheduling_policy {
     preemptible = true
   }
   network_interface {
@@ -177,13 +155,16 @@ resource "yandex_compute_instance" "pub-01" {
     nat       = true
   }
 
-
   metadata = {
     serial-port-enable = var.vms_md.serial
     ssh-keys           = "core:${var.vms_md.key}"
-  }
+    user-data   = <<EOF
+#cloud-config
+  runcmd:
+    - echo PGltZwogICAgc3JjPSJodHRwOi8vdXh0dWFoZ3AtMjAyNjA2MTMuc3RvcmFnZS55YW5kZXhjbG91ZC5uZXQvdHV4LXBpYy0yMDI2MDYxMy5qcGciCi8+Cg== |base64 -d > /var/www/html/index.html
+EOF
+    }
 }
-
 
 resource "yandex_compute_instance" "pvt-01" {
   name            = "pvt-01"
