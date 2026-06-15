@@ -20,6 +20,6 @@ ZC5uZXQvdHV4LXBpYy0yMDI2MDYxMy5qcGciCi8+Cg==
 - Добавил в манифест создание группы инстанций и передал через user-data содержимое файла index.html
 - Применил конфигурацию
 - Проверил доступность моего документа
-  [Tux from index.html](index.jpg)
+  ![Tux from index.html](index.jpg)
 
-3. 
+3.
