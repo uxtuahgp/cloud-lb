@@ -1,15 +1,17 @@
 resource "yandex_vpc_network" "cloud_net" {
-  name = var.vpc_net_name
+  name      = var.vpc_net_name
+  folder_id = var.folder_id
 }
 
 
 resource "yandex_vpc_subnet" "public_sub" {
   name           = var.vpc_subnet_pub_name
+  folder_id      = var.folder_id
   zone           = var.default_zone
   network_id     = yandex_vpc_network.cloud_net.id
   v4_cidr_blocks = var.public_cidr
 }
-
+/*
 
 resource "yandex_vpc_subnet" "private_sub" {
   name           = var.vpc_subnet_pvt_name
@@ -18,13 +20,17 @@ resource "yandex_vpc_subnet" "private_sub" {
   v4_cidr_blocks = var.private_cidr
   route_table_id = yandex_vpc_route_table.cloud_rt.id
 }
-
-
-/*
-data "yandex_compute_image" "ubuntu" {
-  family = var.vm_family
-}
 */
+
+resource "yandex_vpc_route_table" "cloud_rt" {
+  network_id     = yandex_vpc_network.cloud_net.id
+  folder_id      = var.folder_id
+  static_route {
+    destination_prefix = "0.0.0.0/0"
+    next_hop_address   = var.nat_ip
+  }
+}
+
 
 resource "yandex_storage_bucket" "my-bucket" {
   bucket    = var.bucket_name
@@ -53,39 +59,54 @@ resource "yandex_resourcemanager_folder_iam_member" "iam-admin" {
   member = "serviceAccount:${yandex_iam_service_account.my-iam-sa.id}"
 }
 
+resource "yandex_resourcemanager_folder_iam_member" "iam-vpc-admin" {
+  folder_id = var.folder_id
+  role = "vpc.admin"
+  member = "serviceAccount:${yandex_iam_service_account.my-iam-sa.id}"
+}
+
+resource "time_sleep" "wait_for_iam" {
+  depends_on = [yandex_resourcemanager_folder_iam_member.iam-admin, yandex_resourcemanager_folder_iam_member.iam-vpc-admin ]
+
+  create_duration = "60s"
+  destroy_duration = "20s"
+}
+
+
 
 resource "yandex_compute_instance_group" "ig-lamp" {
   name               = "ig-lamp"
+  depends_on         = [ time_sleep.wait_for_iam ]
   service_account_id = yandex_iam_service_account.my-iam-sa.id
   folder_id = var.folder_id
     instance_template {
-    platform_id = var.vm_platform
-    resources {
-      cores         = var.vms_resources.pub.cores
-      memory        = var.vms_resources.pub.memory
-      core_fraction = var.vms_resources.pub.fraction
-   }
-    boot_disk {
-      initialize_params {
-        image_id = var.ig_lamp_image_id
+      platform_id = var.vm_platform
+      resources {
+        cores         = var.vms_resources.pub.cores
+        memory        = var.vms_resources.pub.memory
+        core_fraction = var.vms_resources.pub.fraction
+    }
+      boot_disk {
+        initialize_params {
+          image_id = var.ig_lamp_image_id
+        }
       }
-    }
-    network_interface {
-      subnet_ids = [ yandex_vpc_subnet.public_sub.id ]
-      nat       = true
-    }
-
-    metadata = {
-      serial-port-enable = var.vms_md.serial
-      ssh-keys           = "core:${var.vms_md.key}"
-      user-data   = <<EOF
-  #cloud-config
-    runcmd:
-      - echo PGltZwogICAgc3JjPSJodHRwOi8vdXh0dWFoZ3AtMjAyNjA2MTMuc3RvcmFnZS55YW5kZXhjbG91ZC5uZXQvdHV4LXBpYy0yMDI2MDYxMy5qcGciCi8+Cg== |base64 -d > /var/www/html/index.html
-  EOF
+      network_interface {
+        subnet_ids = [ yandex_vpc_subnet.public_sub.id ]
+        nat       = false
       }
 
-    }
+      metadata = {
+        serial-port-enable = var.vms_md.serial
+        ssh-keys           = "core:${var.vms_md.key}"
+        user-data   = <<EOF
+    #cloud-config
+      runcmd:
+        - echo PGltZwogICAgc3JjPSJodHRwOi8vdXh0dWFoZ3AtMjAyNjA2MTMuc3RvcmFnZS55YW5kZXhjbG91ZC5uZXQvdHV4LXBpYy0yMDI2MDYxMy5qcGciCi8+Cg== |base64 -d > /var/www/html/index.html
+    EOF
+        }
+
+      }
   scale_policy {
     fixed_scale {
       size = 3
@@ -95,17 +116,27 @@ resource "yandex_compute_instance_group" "ig-lamp" {
     zones = [var.default_zone]
   }
   deploy_policy {
-    max_unavailable = 1
+    max_unavailable = 2
     max_creating = 1
-    max_expansion = 1
-    max_deleting = 1
+    max_expansion = 0
+    max_deleting = 2
   }
+  health_check {
+    timeout          = 5
+    interval         = 10
+    healthy_threshold  = 2
+    unhealthy_threshold = 3
+    http_options {
+      port = 80
+      path = "/"
+    }
+  }
+  load_balancer {
 
-  load_balancer_spec {
     target_group_name        = "web-tg"
     target_group_description = "Target group for lamp instances"
-
-    health_checks {
+  }
+/*  health_check {
       name                    = "http-hc"
       interval                = 10
       timeout                 = 5
@@ -116,84 +147,25 @@ resource "yandex_compute_instance_group" "ig-lamp" {
         path = "/"
       }
     }
-  }
+*/
 }
 
-
-
-
-
-resource "yandex_vpc_route_table" "cloud_rt" {
-  network_id = yandex_vpc_network.cloud_net.id
-  static_route {
-    destination_prefix = "0.0.0.0/0"
-    next_hop_address   = var.nat_ip
+resource "yandex_lb_network_load_balancer" "my-nlb" {
+  name = "my-nlb"
+  listener {
+    name = "nlb-listener"
+    port = 80
   }
-}
-
-/*
-resource "yandex_compute_instance" "pub-01" {
-  name            = "pub-01"
-  hostname        = "pub-01"
-  platform_id = var.vm_platform
-  resources {
-    cores         = var.vms_resources.pub.cores
-    memory        = var.vms_resources.pub.memory
-    core_fraction = var.vms_resources.pub.fraction
- }
- boot_disk {
-   initialize_params {
-     image_id = var.ig_lamp_image_id
-   }
- }
-
- scheduling_policy {
-    preemptible = true
-  }
-  network_interface {
-    subnet_id = yandex_vpc_subnet.public_sub.id
-    nat       = true
-  }
-
-  metadata = {
-    serial-port-enable = var.vms_md.serial
-    ssh-keys           = "core:${var.vms_md.key}"
-    user-data   = <<EOF
-#cloud-config
-  runcmd:
-    - echo PGltZwogICAgc3JjPSJodHRwOi8vdXh0dWFoZ3AtMjAyNjA2MTMuc3RvcmFnZS55YW5kZXhjbG91ZC5uZXQvdHV4LXBpYy0yMDI2MDYxMy5qcGciCi8+Cg== |base64 -d > /var/www/html/index.html
-EOF
-    }
-}
-
-resource "yandex_compute_instance" "pvt-01" {
-  name            = "pvt-01"
-  hostname        = "pvt-01"
-  platform_id = var.vm_platform
-  resources {
-    cores         = var.vms_resources.pvt.cores
-    memory        = var.vms_resources.pvt.memory
-    core_fraction = var.vms_resources.pvt.fraction
- }
-
-  boot_disk {
-    initialize_params {
-      image_id = data.yandex_compute_image.ubuntu.image_id
+  attached_target_group {
+    target_group_id = yandex_compute_instance_group.ig-lamp.load_balancer.0.target_group_id
+    healthcheck {
+      name = "http"
+      unhealthy_threshold = 3
+      healthy_threshold = 2
+      http_options {
+        port = 80
+        path = "/"
+      }
     }
   }
-
-  scheduling_policy {
-    preemptible = true
-  }
-  network_interface {
-    subnet_id = yandex_vpc_subnet.private_sub.id
-    nat       = false
-  }
-
-
-  metadata = {
-    serial-port-enable = var.vms_md.serial
-    ssh-keys           = "core:${var.vms_md.key}"
-  }
 }
- */
